@@ -25,7 +25,7 @@ fn run() -> Result<()> {
         // No args: read the request from stdin, so text with quotes/backticks
         // never has to pass through the shell's parser.
         if io::stdin().is_terminal() {
-            eprintln!("Paste or type your request, then press Ctrl-D:");
+            eprintln!("Paste or type your request. When done, press Enter then Ctrl-D to submit:");
         }
         io::stdin().read_to_string(&mut request)?;
     }
