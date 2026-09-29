@@ -2,7 +2,8 @@ mod llm;
 
 use std::{
     env,
-    io::{self, Write},
+    fs::File,
+    io::{self, BufRead, BufReader, IsTerminal, Read, Write},
     process::{self, Command},
 };
 
@@ -19,9 +20,17 @@ fn run() -> Result<()> {
     // Load the repo's .env (path fixed at build time). Existing env vars take precedence.
     let _ = dotenvy::from_path(concat!(env!("CARGO_MANIFEST_DIR"), "/.env"));
 
-    let request = env::args().skip(1).collect::<Vec<_>>().join(" ");
+    let mut request = env::args().skip(1).collect::<Vec<_>>().join(" ");
     if request.trim().is_empty() {
-        bail!("usage: spk <describe the command you want>");
+        // No args: read the request from stdin, so text with quotes/backticks
+        // never has to pass through the shell's parser.
+        if io::stdin().is_terminal() {
+            eprintln!("Paste or type your request, then press Ctrl-D:");
+        }
+        io::stdin().read_to_string(&mut request)?;
+    }
+    if request.trim().is_empty() {
+        bail!("usage: spk <describe the command you want>  (or run `spk` and paste)");
     }
 
     let command = llm::generate_command(&request)?;
@@ -29,8 +38,10 @@ fn run() -> Result<()> {
 
     print!("Run this command? [y/N] ");
     io::stdout().flush()?;
+    // Ask via the terminal directly, since stdin may already be used up.
+    let tty = File::open("/dev/tty").context("no terminal available to confirm")?;
     let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
+    BufReader::new(tty.try_clone()?).read_line(&mut answer)?;
     if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
         return Ok(());
     }
@@ -39,6 +50,7 @@ fn run() -> Result<()> {
     let status = Command::new(shell)
         .arg("-c")
         .arg(&command)
+        .stdin(tty)
         .status()
         .context("failed to run command")?;
     process::exit(status.code().unwrap_or(1));
